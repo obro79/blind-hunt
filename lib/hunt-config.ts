@@ -48,7 +48,7 @@ export const stops: Stop[] = [
     id: "canada-place-sails",
     order: 1,
     title: "Canada Place Sails",
-    prompt: "Start strong: pick a silly team name and snap a selfie with the sails behind you. Answer this: How many white sail peaks do you see?",
+    prompt: "Start strong: pick a team name and snap a selfie with the sails behind you. Answer this: How many white sail peaks do you see?",
     requires: ["photo", "answer"],
     validation: {
       geo: { lat: 49.2887, lng: -123.1139, radius_m: 180 },
@@ -65,8 +65,8 @@ export const stops: Stop[] = [
   {
     id: "the-drop",
     order: 2,
-    title: "The Drop (Blue Raindrop)",
-    prompt: "Tell a two-photo story: 'oh no rain → solved'. Answer: What colour is the sculpture?",
+    title: "The Drop (Raindrop)",
+    prompt: "Answer: What colour is the sculpture?",
     requires: ["photo", "answer"],
     validation: {
       geo: { lat: 49.2899, lng: -123.1181, radius_m: 120 },
@@ -83,7 +83,7 @@ export const stops: Stop[] = [
     id: "olympic-cauldron",
     order: 3,
     title: "Olympic Cauldron",
-    prompt: "Pods & podiums! Share a tiny win each (this week). Photo with the crossed glass pylons. Answer: How many big glass pylons hold the cauldron?",
+    prompt: "Pods & podiums! Photo with the crossed glass pylons. How many big glass pylons hold the cauldron?",
     requires: ["photo", "answer"],
     validation: {
       geo: { lat: 49.2896, lng: -123.1169, radius_m: 120 },
@@ -99,7 +99,7 @@ export const stops: Stop[] = [
   {
     id: "digital-orca",
     order: 4,
-    title: "Digital Orca",
+    title: "Title",
     prompt: "Find two tiny patterns nearby (reflections, tiles) and capture them in your photo. Answer: What animal is the sculpture?",
     requires: ["photo", "answer"],
     validation: {
@@ -184,7 +184,7 @@ export const stops: Stop[] = [
   {
     id: "sam-kee",
     order: 9,
-    title: "Sam Kee Building",
+    title: "Ultra Narrow Building",
     prompt: "Snap the ultra-slim facade. Answer: type the building's two-word name.",
     requires: ["photo", "answer"],
     validation: {
@@ -201,8 +201,8 @@ export const stops: Stop[] = [
   {
     id: "mello-finish",
     order: 10,
-    title: "Finish at Mello",
-    prompt: "End on a sweet note. Photo of one ring donut and one filled (or any two treats). Answer: your 6-word headline for today.",
+    title: "Go Eat something sweet",
+    prompt: "End on a sweet note. Photo of one ring donut and one filled (or any two treats)",
     requires: ["photo", "answer"],
     validation: {
       geo: { lat: 49.2803, lng: -123.0999, radius_m: 220 },
