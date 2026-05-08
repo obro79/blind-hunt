@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { supabase, HuntSession, StopProgress } from '@/lib/supabase';
 import { stops } from '@/lib/hunt-config';
-import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface HuntContextType {
   session: HuntSession | null;
@@ -26,7 +25,7 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
   const [stopProgress, setStopProgress] = useState<StopProgress[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [channel, setChannel] = useState<RealtimeChannel | null>(null);
+  const sessionId = session?.id;
 
   const currentStop = session
     ? stops.find(s => s.id === session.current_stop_id) || null
@@ -39,16 +38,16 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
 
   // Subscribe to real-time updates
   useEffect(() => {
-    if (!session) return;
+    if (!sessionId) return;
 
-    const newChannel = supabase.channel(`hunt-session-${session.id}`)
+    const newChannel = supabase.channel(`hunt-session-${sessionId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'hunt_sessions',
-          filter: `id=eq.${session.id}`,
+          filter: `id=eq.${sessionId}`,
         },
         (payload) => {
           setSession(payload.new as HuntSession);
@@ -60,26 +59,24 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
           event: '*',
           schema: 'public',
           table: 'stop_progress',
-          filter: `session_id=eq.${session.id}`,
+          filter: `session_id=eq.${sessionId}`,
         },
         async () => {
           // Reload stop progress
           const { data } = await supabase
             .from('stop_progress')
             .select('*')
-            .eq('session_id', session.id)
+            .eq('session_id', sessionId)
             .order('created_at', { ascending: true });
           if (data) setStopProgress(data);
         }
       )
       .subscribe();
 
-    setChannel(newChannel);
-
     return () => {
       newChannel.unsubscribe();
     };
-  }, [session?.id]);
+  }, [sessionId]);
 
   // Timer effect
   useEffect(() => {
@@ -313,4 +310,3 @@ export function useHunt() {
   }
   return context;
 }
-
