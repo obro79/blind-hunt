@@ -1,11 +1,6 @@
 # Blind Hunt
 
-A mobile-first scavenger hunt PWA for a Vancouver route from Canada Place to a sweet finish. It supports shared hunt sessions, GPS checks, photo capture, answer validation, hints with time penalties, and a completion gallery.
-
-## Screenshots
-
-![Landing screen](public/screenshots/landing.png)
-![Start screen](public/screenshots/start.png)
+A mobile-first PWA that takes you on a scavenger hunt across Vancouver. It supports shared hunt sessions, GPS checks, photo capture, answer validation, hints with time penalties, and a completion gallery.
 
 ## What It Does
 
@@ -63,7 +58,7 @@ components/          Hunt screens, stop UI, timer, photo, and location checks
 components/ui/       Reusable UI primitives
 contexts/            Hunt state and Supabase realtime sync
 lib/                 Hunt config, validation, geolocation, Supabase client
-public/              PWA manifest and README screenshots
+public/              PWA manifest
 supabase-schema.sql  Database schema
 ```
 
