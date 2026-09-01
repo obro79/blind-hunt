@@ -1,17 +1,61 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useHunt } from '@/contexts/HuntContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { stops } from '@/lib/hunt-config';
+import { supabase, PHOTOS_BUCKET } from '@/lib/supabase';
 import Image from 'next/image';
+
+function isLegacyBase64(value: string): boolean {
+  return value.startsWith('data:image/');
+}
 
 export function CompletionScreen() {
   const { session, stopProgress, elapsedTime } = useHunt();
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+
+  // Resolve private-bucket object paths to short-lived signed URLs so the
+  // gallery can render photos without ever making the bucket public.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const paths = stopProgress
+        .map(p => p.photo_url)
+        .filter((p): p is string => !!p && !isLegacyBase64(p));
+
+      if (paths.length === 0) {
+        setSignedUrls({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        paths.map(async (path) => {
+          const { data, error } = await supabase.storage
+            .from(PHOTOS_BUCKET)
+            .createSignedUrl(path, 3600);
+          return [path, error ? null : data.signedUrl] as const;
+        })
+      );
+
+      if (!cancelled) {
+        const resolved: Record<string, string> = {};
+        for (const [path, url] of entries) {
+          if (url) resolved[path] = url;
+        }
+        setSignedUrls(resolved);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stopProgress]);
 
   if (!session || session.status !== 'completed') return null;
 
@@ -22,6 +66,9 @@ export function CompletionScreen() {
 
   const hours = Math.floor(elapsedTime / 60);
   const minutes = elapsedTime % 60;
+
+  const resolvePhotoUrl = (path: string): string | null =>
+    isLegacyBase64(path) ? path : signedUrls[path] || null;
 
   // Get all photos with their info
   const photosWithInfo = stopProgress
@@ -39,20 +86,30 @@ export function CompletionScreen() {
     })
     .sort((a, b) => a.stopOrder - b.stopOrder);
 
-  const downloadAllPhotos = () => {
-    photosWithInfo.forEach((item, index) => {
-      const link = document.createElement('a');
-      link.href = item.photo;
-      link.download = `${index + 1}-${item.title.replace(/\s+/g, '-')}.jpg`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    });
+  const downloadUrl = async (url: string, filename: string) => {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  const downloadAllPhotos = async () => {
+    for (const [index, item] of photosWithInfo.entries()) {
+      const url = resolvePhotoUrl(item.photo);
+      if (!url) continue;
+      await downloadUrl(url, `${index + 1}-${item.title.replace(/\s+/g, '-')}.jpg`);
+    }
   };
 
   const shareResults = () => {
     const text = `🎯 Just completed Adventure Awaits - Vancouver Hunt!\n\nTeam: ${session.team_name}\n⏱️ Time: ${hours > 0 ? `${hours}h ` : ''}${minutes}m\n✅ Completed: ${completedCount}/${totalStops} stops\n${totalHintsUsed > 0 ? `💡 Hints: ${totalHintsUsed}\n` : ''}#AdventureAwaits #VancouverHunt`;
-    
+
     if (navigator.share) {
       navigator.share({ text });
     } else {
@@ -132,70 +189,88 @@ export function CompletionScreen() {
               <div>
                 <h3 className="text-lg font-semibold mb-3">Your Journey 📸</h3>
                 <div className="grid grid-cols-2 gap-3">
-                  {photosWithInfo.map((item, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedPhoto(item.photo)}
-                      className="space-y-1 text-left hover:opacity-80 transition-opacity"
-                    >
-                      <div className="relative w-full h-32 bg-gray-100 rounded-lg overflow-hidden">
-                        <Image
-                          src={item.photo}
-                          alt={item.title}
-                          fill
-                          className="object-cover"
-                        />
-                      </div>
-                      <div className="text-xs text-gray-600 flex items-center gap-1">
-                        <span>{idx + 1}. {item.title}</span>
-                        {item.skipped && (
-                          <Badge variant="outline" className="text-xs">Skipped</Badge>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                  {photosWithInfo.map((item, idx) => {
+                    const src = resolvePhotoUrl(item.photo);
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => src && setSelectedPhoto(src)}
+                        className="space-y-1 text-left hover:opacity-80 transition-opacity"
+                      >
+                        <div className="relative w-full h-32 bg-gray-100 rounded-lg overflow-hidden">
+                          {src ? (
+                            <Image
+                              src={src}
+                              alt={item.title}
+                              fill
+                              className="object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
+                              Photo unavailable
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-600 flex items-center gap-1">
+                          <span>{idx + 1}. {item.title}</span>
+                          {item.skipped && (
+                            <Badge variant="outline" className="text-xs">Skipped</Badge>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
               <div>
                 <h3 className="text-lg font-semibold mb-3">Complete Summary 📋</h3>
                 <div className="space-y-3">
-                  {photosWithInfo.map((item, idx) => (
-                    <Card key={idx} className="overflow-hidden">
-                      <div className="flex gap-3 p-3">
-                        <button
-                          onClick={() => setSelectedPhoto(item.photo)}
-                          className="flex-shrink-0"
-                        >
-                          <div className="relative w-20 h-20 bg-gray-100 rounded-lg overflow-hidden">
-                            <Image
-                              src={item.photo}
-                              alt={item.title}
-                              fill
-                              className="object-cover"
-                            />
-                          </div>
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <h4 className="font-semibold text-sm">
-                              {idx + 1}. {item.title}
-                            </h4>
-                            {item.skipped ? (
-                              <Badge variant="outline" className="text-xs">Skipped</Badge>
-                            ) : item.isCorrect ? (
-                              <Badge className="bg-green-500 text-xs">✓ Correct</Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-xs">Attempted</Badge>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-600 mt-1">
-                            <span className="font-medium">Answer:</span> {item.answer || 'No answer'}
+                  {photosWithInfo.map((item, idx) => {
+                    const src = resolvePhotoUrl(item.photo);
+                    return (
+                      <Card key={idx} className="overflow-hidden">
+                        <div className="flex gap-3 p-3">
+                          <button
+                            onClick={() => src && setSelectedPhoto(src)}
+                            className="flex-shrink-0"
+                          >
+                            <div className="relative w-20 h-20 bg-gray-100 rounded-lg overflow-hidden">
+                              {src ? (
+                                <Image
+                                  src={src}
+                                  alt={item.title}
+                                  fill
+                                  className="object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-xs text-gray-400">
+                                  N/A
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="font-semibold text-sm">
+                                {idx + 1}. {item.title}
+                              </h4>
+                              {item.skipped ? (
+                                <Badge variant="outline" className="text-xs">Skipped</Badge>
+                              ) : item.isCorrect ? (
+                                <Badge className="bg-green-500 text-xs">✓ Correct</Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-xs">Attempted</Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-600 mt-1">
+                              <span className="font-medium">Answer:</span> {item.answer || 'No answer'}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Card>
-                  ))}
+                      </Card>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -251,12 +326,9 @@ export function CompletionScreen() {
             </div>
             <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2">
               <Button
-                onClick={(e) => {
+                onClick={async (e) => {
                   e.stopPropagation();
-                  const link = document.createElement('a');
-                  link.href = selectedPhoto;
-                  link.download = 'photo.jpg';
-                  link.click();
+                  await downloadUrl(selectedPhoto, 'photo.jpg');
                 }}
                 className="bg-white text-black hover:bg-gray-200"
                 size="sm"
@@ -270,4 +342,3 @@ export function CompletionScreen() {
     </div>
   );
 }
-

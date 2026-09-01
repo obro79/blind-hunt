@@ -35,3 +35,16 @@ export interface HuntTimer {
   elapsed_min: number;
 }
 
+export interface HuntMember {
+  id: string;
+  session_id: string;
+  user_id: string;
+  role: 'owner' | 'member';
+  created_at: string;
+}
+
+// Photos live in the private hunt-photos bucket; stop_progress.photo_url stores
+// the object path (e.g. `<session_id>/<user_id>/<stop_id>-<ts>.<ext>`), not base64.
+export const PHOTOS_BUCKET = 'hunt-photos';
+export const MAX_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB, matches bucket file_size_limit
+
