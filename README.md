@@ -34,7 +34,9 @@ NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
-Create the Supabase tables by running [supabase-schema.sql](supabase-schema.sql) in the Supabase SQL editor.
+Enable anonymous sign-ins in the Supabase dashboard (**Authentication → Sign In / Up → Allow anonymous sign-ins**). The app creates (or reuses) an anonymous auth session on first use, and hunts are authorized through explicit owner/member rows in `hunt_members` — no login screen needed.
+
+Create the Supabase tables, RLS policies, and the private `hunt-photos` Storage bucket by running [supabase-schema.sql](supabase-schema.sql) in the Supabase SQL editor. The script is idempotent and safely replaces the old "allow all" policies.
 
 Run the app locally:
 
@@ -66,6 +68,20 @@ supabase-schema.sql  Database schema
 
 Edit [lib/hunt-config.ts](lib/hunt-config.ts) to change the route, stop prompts, accepted answers, GPS radius, hints, and time limits.
 
-## Notes
+## Security Model
 
-Photos are currently stored as base64 strings in Supabase. That keeps the app simple, but Supabase Storage would be a better fit for a production version with larger image volume.
+- **No public access**: every table uses operation-specific RLS policies bound to `auth.uid()` and membership in `hunt_members` (role `owner`/`member`). There are no `FOR ALL USING (true)` policies.
+- **Anonymous auth**: the client signs in anonymously with the anon key — never a service-role/secret key.
+- **Photos**: captured photos are uploaded to the private `hunt-photos` Storage bucket at `<session_id>/<user_id>/<stop_id>-<timestamp>.<ext>`, and `stop_progress.photo_url` stores only the object path. The bucket enforces image-only MIME types and a 10 MB limit (also checked client-side and in the storage RLS policies). The gallery renders photos via short-lived signed URLs.
+
+## Upgrading Existing Data
+
+Sessions created before this change have no `hunt_members` rows, so they are no longer visible. Create a new hunt, or backfill ownership in the SQL editor once you know the creator's auth user id:
+
+```sql
+INSERT INTO hunt_members (session_id, user_id, role)
+SELECT id, created_by, 'owner' FROM hunt_sessions WHERE created_by IS NOT NULL
+ON CONFLICT (session_id, user_id) DO NOTHING;
+```
+
+Old base64 `photo_url` values still render in the completion gallery, but new captures are uploaded to Storage.

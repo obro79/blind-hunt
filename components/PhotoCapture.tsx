@@ -1,46 +1,64 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import Image from 'next/image';
+import { MAX_PHOTO_BYTES } from '@/lib/supabase';
 
 interface PhotoCaptureProps {
-  onPhotoCapture: (base64: string) => void;
-  currentPhoto?: string;
+  onPhotoCapture: (file: File | null) => void;
 }
 
-export function PhotoCapture({ onPhotoCapture, currentPhoto }: PhotoCaptureProps) {
-  const [photo, setPhoto] = useState<string>(currentPhoto || '');
+export function PhotoCapture({ onPhotoCapture }: PhotoCaptureProps) {
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [error, setError] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!photo) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(photo);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Allow re-selecting the same file after a retake
+    e.target.value = '';
     if (!file) return;
 
-    // Convert to base64
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setPhoto(base64);
-      onPhotoCapture(base64);
-    };
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file (JPEG, PNG, WebP, HEIC).');
+      return;
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      setError(`Photo is too large. Maximum size is ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} MB.`);
+      return;
+    }
+
+    setError('');
+    setPhoto(file);
+    onPhotoCapture(file);
   };
 
   const handleRetake = () => {
-    setPhoto('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setPhoto(null);
+    setError('');
+    onPhotoCapture(null);
   };
 
-  if (photo) {
+  if (photo && previewUrl) {
     return (
       <Card className="p-4 space-y-3">
         <div className="relative w-full h-64 bg-gray-100 rounded-lg overflow-hidden">
           <Image
-            src={photo}
+            src={previewUrl}
             alt="Captured photo"
             fill
             className="object-cover"
@@ -58,7 +76,7 @@ export function PhotoCapture({ onPhotoCapture, currentPhoto }: PhotoCaptureProps
   }
 
   return (
-    <Card className="p-4">
+    <Card className="p-4 space-y-3">
       <input
         ref={fileInputRef}
         type="file"
@@ -78,7 +96,11 @@ export function PhotoCapture({ onPhotoCapture, currentPhoto }: PhotoCaptureProps
           📸 Take Photo
         </Button>
       </label>
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
     </Card>
   );
 }
-

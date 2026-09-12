@@ -15,7 +15,7 @@ import { stops } from '@/lib/hunt-config';
 
 export function StopCard() {
   const { session, currentStop, submitAnswer, applyHint, stopProgress, currentHintCount } = useHunt();
-  const [photo, setPhoto] = useState('');
+  const [photo, setPhoto] = useState<File | null>(null);
   const [answer, setAnswer] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -32,7 +32,7 @@ export function StopCard() {
 
   useEffect(() => {
     // Reset form when stop changes
-    setPhoto('');
+    setPhoto(null);
     setAnswer('');
     setFeedback(null);
     setCanSkip(false);
@@ -127,7 +127,7 @@ export function StopCard() {
           {/* Photo Capture */}
           <div>
             <h3 className="text-sm font-medium mb-2">📸 Photo Required</h3>
-            <PhotoCapture onPhotoCapture={setPhoto} currentPhoto={photo} />
+            <PhotoCapture key={currentStop.id} onPhotoCapture={setPhoto} />
           </div>
 
           {/* Answer Input */}

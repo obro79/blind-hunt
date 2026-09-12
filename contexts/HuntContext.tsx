@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase, HuntSession, StopProgress } from '@/lib/supabase';
+import { supabase, HuntSession, StopProgress, PHOTOS_BUCKET } from '@/lib/supabase';
 import { stops } from '@/lib/hunt-config';
 
 interface HuntContextType {
@@ -12,13 +12,26 @@ interface HuntContextType {
   createSession: (teamName: string) => Promise<string>;
   joinSession: (sessionId: string) => Promise<void>;
   startHunt: () => Promise<void>;
-  submitAnswer: (answer: string, photoBase64: string, isCorrect: boolean, skipped?: boolean) => Promise<void>;
+  submitAnswer: (answer: string, photo: File | null, isCorrect: boolean, skipped?: boolean) => Promise<void>;
   applyHint: () => Promise<void>;
   elapsedTime: number;
   currentHintCount: number;
 }
 
 const HuntContext = createContext<HuntContextType | undefined>(undefined);
+
+// Sign in anonymously (or reuse the persisted anonymous session) so every
+// request runs as an authenticated user that RLS can authorize via auth.uid().
+async function ensureSignedIn(): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) return session.user.id;
+
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error || !data.user) {
+    throw new Error(error?.message || 'Could not create an anonymous session');
+  }
+  return data.user.id;
+}
 
 export function HuntProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<HuntSession | null>(null);
@@ -97,12 +110,15 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
   const createSession = useCallback(async (teamName: string) => {
     setIsLoading(true);
     try {
+      const userId = await ensureSignedIn();
+
       const { data, error } = await supabase
         .from('hunt_sessions')
         .insert({
           team_name: teamName,
           current_stop_id: stops[0].id,
           status: 'waiting',
+          created_by: userId,
         })
         .select()
         .single();
@@ -110,7 +126,18 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
 
       setSession(data);
-      
+
+      // Record the creator as the explicit owner of this hunt.
+      const { error: memberError } = await supabase
+        .from('hunt_members')
+        .insert({
+          session_id: data.id,
+          user_id: userId,
+          role: 'owner',
+        });
+
+      if (memberError) throw memberError;
+
       // Create timer record
       await supabase.from('hunt_timer').insert({
         session_id: data.id,
@@ -128,6 +155,22 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
   const joinSession = useCallback(async (sessionId: string) => {
     setIsLoading(true);
     try {
+      const userId = await ensureSignedIn();
+
+      // Authorize: create our own membership row. Idempotent for repeat joins.
+      const { error: memberError } = await supabase
+        .from('hunt_members')
+        .upsert(
+          {
+            session_id: sessionId,
+            user_id: userId,
+            role: 'member',
+          },
+          { onConflict: 'session_id,user_id', ignoreDuplicates: true }
+        );
+
+      if (memberError) throw memberError;
+
       const { data, error } = await supabase
         .from('hunt_sessions')
         .select('*')
@@ -183,13 +226,32 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
 
   const submitAnswer = useCallback(async (
     answer: string,
-    photoBase64: string,
+    photo: File | null,
     isCorrect: boolean,
     skipped: boolean = false
   ) => {
     if (!session || !currentStop) return;
 
     try {
+      // Upload the captured photo to the private bucket (per-hunt/per-user path)
+      // before recording progress; photo_url stores only the object path.
+      let photoPath: string | null = null;
+      if (photo) {
+        const userId = await ensureSignedIn();
+        const ext = photo.name.split('.').pop()?.toLowerCase() || 'jpg';
+        photoPath = `${session.id}/${userId}/${currentStop.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from(PHOTOS_BUCKET)
+          .upload(photoPath, photo, {
+            contentType: photo.type || 'image/jpeg',
+            upsert: true,
+            cacheControl: '31536000',
+          });
+
+        if (uploadError) throw uploadError;
+      }
+
       // Record stop progress
       const { error: progressError } = await supabase
         .from('stop_progress')
@@ -197,7 +259,7 @@ export function HuntProvider({ children }: { children: React.ReactNode }) {
           session_id: session.id,
           stop_id: currentStop.id,
           completed_at: new Date().toISOString(),
-          photo_url: photoBase64,
+          photo_url: photoPath,
           answer_submitted: answer,
           is_correct: isCorrect || skipped,
           skipped: skipped,

@@ -96,18 +96,17 @@ export function StartScreen() {
     }
   };
 
-  // Check URL for session parameter
-  useState(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const sessionParam = params.get('session');
-      if (sessionParam) {
-        setSessionId(sessionParam);
-        setMode('join');
-        joinSession(sessionParam);
-      }
+  // Check URL for session parameter on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const sessionParam = params.get('session');
+    if (sessionParam) {
+      setSessionId(sessionParam);
+      setMode('join');
+      joinSession(sessionParam);
     }
-  });
+  }, [joinSession]);
 
   if (session && session.status === 'waiting') {
     return (
